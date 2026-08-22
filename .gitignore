@@ -3,6 +3,10 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# a\Artifacts
+artifacts/*
+!artifacts/.gitkeep
+
 # C extensions
 *.so
 
