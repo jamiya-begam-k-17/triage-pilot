@@ -38,7 +38,6 @@ class Referral:
     requested_action: str
     urgency: str
 
-
 @dataclass
 class AgentResult:
     referral_id: str
@@ -49,6 +48,9 @@ class AgentResult:
     action_taken: str
     relevant_history: list[HistoryEvent] = field(default_factory=list)
     missing_information: list[str] = field(default_factory=list)
+    handoff_package: dict[str, Any] | None = None
+    escalation_package: dict[str, Any] | None = None
+    triage_note: str | None = None
 
 
 @dataclass

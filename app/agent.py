@@ -1,3 +1,8 @@
+from app.handoff import create_handoff
+from app.escalate import (
+    CasePackageStore,
+    build_case_package,
+)
 from app.audit import AuditLogger
 from app.history import (
     HistoryClient,
@@ -35,9 +40,13 @@ class TriageAgent:
         self,
         history_client: HistoryClient,
         audit: AuditLogger,
+        case_package_store: CasePackageStore | None = None,
     ):
         self.history_client = history_client
         self.audit = audit
+        self.case_package_store = (
+            case_package_store or CasePackageStore()
+        )
 
     def run(
         self,
@@ -120,12 +129,33 @@ class TriageAgent:
 
         if policy_decision.status == PolicyStatus.REQUIRES_APPROVAL:
 
+            escalation_package = build_case_package(
+                referral=referral,
+                resident=resident,
+                result=AgentResult(
+                    referral_id=referral.referral_id,
+                    resident_ref=referral.resident_ref,
+                    status=DecisionStatus.ESCALATED,
+                    intent=intent,
+                    reason=policy_decision.reason,
+                    action_taken="NONE",
+                    relevant_history=relevant_history,
+                ),
+                policy_decision=policy_decision,
+            )
+
+            self.case_package_store.save(
+                escalation_package
+            )
+
             self.audit.record(
                 "ACT",
                 "HARD STOP: action blocked pending supervisor approval.",
                 referral_id=referral.referral_id,
                 requested_action=referral.requested_action,
                 action_taken="NONE",
+                escalation_destination="SUPERVISOR_QUEUE",
+                escalation_package=escalation_package.__dict__,
             )
 
             return AgentResult(
@@ -136,6 +166,7 @@ class TriageAgent:
                 reason=policy_decision.reason,
                 action_taken="NONE",
                 relevant_history=relevant_history,
+                escalation_package=escalation_package.__dict__,
             )
 
         # ---------------------------------------------
@@ -144,12 +175,20 @@ class TriageAgent:
 
         if policy_decision.status == PolicyStatus.HANDOFF:
 
+            handoff_package = create_handoff(
+                referral=referral,
+                resident=resident,
+                relevant_history=relevant_history,
+                reason=policy_decision.reason,
+            )
+
             self.audit.record(
                 "ACT",
-                "HARD STOP: case handed off without performing the requested action.",
+                "HARD STOP: case handed off to caseworker.",
                 referral_id=referral.referral_id,
-                requested_action=referral.requested_action,
                 action_taken="NONE",
+                handoff_destination="CASEWORKER_QUEUE",
+                handoff_package=handoff_package,
             )
 
             return AgentResult(
@@ -160,6 +199,7 @@ class TriageAgent:
                 reason=policy_decision.reason,
                 action_taken="NONE",
                 relevant_history=relevant_history,
+                handoff_package=handoff_package,
             )
 
         # ---------------------------------------------
