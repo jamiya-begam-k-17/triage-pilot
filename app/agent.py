@@ -16,14 +16,19 @@ from app.policy import (
 
 class TriageAgent:
     """
-    Executes the three-step triage workflow:
+    Executes the triage workflow:
 
         1. UNDERSTAND
         2. DECIDE
         3. ACT
 
-    The agent never performs an action that the policy
-    requires a supervisor to approve.
+    Safety rules:
+
+    - PERMITTED actions may be completed.
+    - REQUIRES_APPROVAL actions are blocked.
+    - HANDOFF cases are not acted upon.
+    - Restricted actions are NEVER executed.
+    - Child-household cases are NEVER drafted automatically.
     """
 
     def __init__(
@@ -92,7 +97,9 @@ class TriageAgent:
         # -------------------------------------------------
 
         policy_decision = evaluate_action(
-            referral.requested_action
+            referral.requested_action,
+            household=resident.household,
+            received_at=referral.received_at,
         )
 
         self.audit.record(
@@ -107,10 +114,12 @@ class TriageAgent:
         # STEP 3 — ACT
         # -------------------------------------------------
 
-        if (
-            policy_decision.status
-            == PolicyStatus.REQUIRES_APPROVAL
-        ):
+        # ---------------------------------------------
+        # HARD STOP — SUPERVISOR APPROVAL REQUIRED
+        # ---------------------------------------------
+
+        if policy_decision.status == PolicyStatus.REQUIRES_APPROVAL:
+
             self.audit.record(
                 "ACT",
                 "HARD STOP: action blocked pending supervisor approval.",
@@ -122,27 +131,78 @@ class TriageAgent:
             return AgentResult(
                 referral_id=referral.referral_id,
                 resident_ref=referral.resident_ref,
-                status=DecisionStatus.REQUIRES_APPROVAL,
+                status=DecisionStatus.ESCALATED,
                 intent=intent,
                 reason=policy_decision.reason,
-                action_taken="BLOCKED_PENDING_APPROVAL",
+                action_taken="NONE",
                 relevant_history=relevant_history,
             )
 
-        # At this stage the operation is permitted.
+        # ---------------------------------------------
+        # HARD STOP — HUMAN HANDOFF REQUIRED
+        # ---------------------------------------------
+
+        if policy_decision.status == PolicyStatus.HANDOFF:
+
+            self.audit.record(
+                "ACT",
+                "HARD STOP: case handed off without performing the requested action.",
+                referral_id=referral.referral_id,
+                requested_action=referral.requested_action,
+                action_taken="NONE",
+            )
+
+            return AgentResult(
+                referral_id=referral.referral_id,
+                resident_ref=referral.resident_ref,
+                status=DecisionStatus.HANDOFF,
+                intent=intent,
+                reason=policy_decision.reason,
+                action_taken="NONE",
+                relevant_history=relevant_history,
+            )
+
+        # ---------------------------------------------
+        # PERMITTED ACTION
+        # ---------------------------------------------
+
+        if policy_decision.status == PolicyStatus.PERMITTED:
+
+            self.audit.record(
+                "ACT",
+                "Permitted triage action completed.",
+                referral_id=referral.referral_id,
+                action_taken=referral.requested_action,
+            )
+
+            return AgentResult(
+                referral_id=referral.referral_id,
+                resident_ref=referral.resident_ref,
+                status=DecisionStatus.COMPLETED,
+                intent=intent,
+                reason=policy_decision.reason,
+                action_taken=referral.requested_action,
+                relevant_history=relevant_history,
+            )
+
+        # ---------------------------------------------
+        # DEFENSIVE FALLBACK
+        # ---------------------------------------------
+
         self.audit.record(
             "ACT",
-            "Permitted triage action completed.",
+            "HARD STOP: unknown policy state.",
             referral_id=referral.referral_id,
-            action_taken=referral.requested_action,
+            requested_action=referral.requested_action,
+            action_taken="NONE",
         )
 
         return AgentResult(
             referral_id=referral.referral_id,
             resident_ref=referral.resident_ref,
-            status=DecisionStatus.COMPLETED,
+            status=DecisionStatus.FAILED,
             intent=intent,
-            reason=policy_decision.reason,
-            action_taken=referral.requested_action,
+            reason="Unknown policy decision state.",
+            action_taken="NONE",
             relevant_history=relevant_history,
         )

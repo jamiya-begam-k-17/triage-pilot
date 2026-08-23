@@ -12,7 +12,10 @@ class HistoryServiceError(RuntimeError):
 
 
 class HistoryClient:
-    def __init__(self, base_url: str = "http://127.0.0.1:8083"):
+    def __init__(
+        self,
+        base_url: str = "http://127.0.0.1:8083",
+    ):
         self.base_url = base_url.rstrip("/")
 
     def _get(self, path: str) -> dict[str, Any]:
@@ -20,7 +23,9 @@ class HistoryClient:
 
         try:
             with urllib.request.urlopen(url, timeout=5) as response:
-                return json.loads(response.read().decode("utf-8"))
+                return json.loads(
+                    response.read().decode("utf-8")
+                )
         except Exception as exc:
             raise HistoryServiceError(
                 f"History service request failed: {url}"
@@ -29,8 +34,13 @@ class HistoryClient:
     def health(self) -> dict[str, Any]:
         return self._get("/health")
 
-    def get_resident(self, resident_ref: str) -> Resident:
-        data = self._get(f"/residents/{resident_ref}")
+    def get_resident(
+        self,
+        resident_ref: str,
+    ) -> Resident:
+        data = self._get(
+            f"/residents/{resident_ref}"
+        )
 
         events = [
             HistoryEvent(
@@ -51,8 +61,13 @@ class HistoryClient:
             events=events,
         )
 
-    def get_events(self, resident_ref: str) -> list[HistoryEvent]:
-        data = self._get(f"/residents/{resident_ref}/events")
+    def get_events(
+        self,
+        resident_ref: str,
+    ) -> list[HistoryEvent]:
+        data = self._get(
+            f"/residents/{resident_ref}/events"
+        )
 
         return [
             HistoryEvent(
@@ -63,7 +78,10 @@ class HistoryClient:
             for event in data.get("events", [])
         ]
 
-    def get_household(self, resident_ref: str) -> list[dict[str, Any]]:
+    def get_household(
+        self,
+        resident_ref: str,
+    ) -> list[dict[str, Any]]:
         data = self._get(
             f"/residents/{resident_ref}/household"
         )
@@ -123,8 +141,11 @@ def get_relevant_history(
     """
     Select history events that are relevant to the referral.
 
-    This is deliberately deterministic. The LLM should not receive
-    the resident's entire history when only a subset is relevant.
+    The selection is deterministic.
+
+    Events are first ranked by relevance score. The selected
+    events are then returned chronologically so the agent sees
+    the history in a predictable order.
     """
 
     keywords = ACTION_KEYWORDS.get(
@@ -132,8 +153,13 @@ def get_relevant_history(
         set(),
     )
 
+    # Unknown action: return the most recent events, but keep
+    # chronological ordering in the returned result.
     if not keywords:
-        return resident.events[-limit:]
+        return sorted(
+            resident.events,
+            key=lambda event: event.date,
+        )[-limit:]
 
     scored: list[tuple[int, HistoryEvent]] = []
 
@@ -151,12 +177,23 @@ def get_relevant_history(
         if score > 0:
             scored.append((score, event))
 
+    # Select the most relevant events first.
     scored.sort(
-        key=lambda item: (item[0], item[1].date),
+        key=lambda item: (
+            item[0],
+            item[1].date,
+        ),
         reverse=True,
     )
 
-    return [
+    selected = [
         event
         for _, event in scored[:limit]
     ]
+
+    # Critical: once selected, expose history chronologically.
+    selected.sort(
+        key=lambda event: event.date
+    )
+
+    return selected

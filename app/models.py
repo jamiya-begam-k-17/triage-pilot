@@ -5,8 +5,8 @@ from typing import Any
 
 class DecisionStatus(str, Enum):
     COMPLETED = "COMPLETED"
-    REQUIRES_APPROVAL = "REQUIRES_APPROVAL"
-    NEEDS_INFORMATION = "NEEDS_INFORMATION"
+    ESCALATED = "ESCALATED"
+    HANDOFF = "HANDOFF"
     FAILED = "FAILED"
 
 
@@ -37,13 +37,6 @@ class Referral:
     summary: str
     requested_action: str
     urgency: str
-
-
-@dataclass
-class PolicyDecision:
-    status: Any
-    reason: str
-    policy_reference: str
 
 
 @dataclass

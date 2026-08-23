@@ -6,6 +6,16 @@ from app.referrals import load_referrals
 
 
 def run_workflow() -> list[AgentResult]:
+    """
+    Run the triage workflow for every referral.
+
+    Safety properties:
+    - One failed referral must never stop the remaining referrals.
+    - Restricted actions are handled by TriageAgent/policy.
+    - Failed referrals are explicitly marked FAILED.
+    - No action is reported as completed when an exception occurs.
+    """
+
     audit = AuditLogger()
     history_client = HistoryClient()
 
@@ -30,11 +40,16 @@ def run_workflow() -> list[AgentResult]:
             results.append(result)
 
         except Exception as exc:
+            # A single referral failure must not terminate
+            # processing of the remaining referral queue.
+            reason = f"Referral failed: {exc}"
+
             audit.record(
                 "ERROR",
                 "Referral failed without stopping the remaining run.",
                 referral_id=referral.referral_id,
                 error=str(exc),
+                action_taken="NONE",
             )
 
             results.append(
@@ -43,8 +58,10 @@ def run_workflow() -> list[AgentResult]:
                     resident_ref=referral.resident_ref,
                     status=DecisionStatus.FAILED,
                     intent=referral.requested_action,
-                    reason=str(exc),
+                    reason=reason,
                     action_taken="NONE",
+                    relevant_history=[],
+                    missing_information=[],
                 )
             )
 
@@ -53,8 +70,13 @@ def run_workflow() -> list[AgentResult]:
         for result in results
     )
 
-    approval = sum(
-        result.status == DecisionStatus.REQUIRES_APPROVAL
+    escalated = sum(
+        result.status == DecisionStatus.ESCALATED
+        for result in results
+    )
+
+    handoff = sum(
+        result.status == DecisionStatus.HANDOFF
         for result in results
     )
 
@@ -68,7 +90,8 @@ def run_workflow() -> list[AgentResult]:
         "Workflow completed.",
         total=len(results),
         completed=completed,
-        requires_approval=approval,
+        escalated=escalated,
+        handoff=handoff,
         failed=failed,
     )
 
