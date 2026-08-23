@@ -51,6 +51,7 @@ class AgentResult:
     handoff_package: dict[str, Any] | None = None
     escalation_package: dict[str, Any] | None = None
     triage_note: str | None = None
+    
 
 
 @dataclass

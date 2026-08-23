@@ -50,6 +50,7 @@ def run_workflow() -> list[AgentResult]:
                 referral_id=referral.referral_id,
                 error=str(exc),
                 action_taken="NONE",
+                error_type=type(exc).__name__,
             )
 
             results.append(

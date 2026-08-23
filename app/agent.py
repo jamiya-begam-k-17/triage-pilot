@@ -1,3 +1,7 @@
+from app.triage_note import (
+    generate_triage_note,
+    save_triage_note,
+)
 from app.handoff import create_handoff
 from app.escalate import (
     CasePackageStore,
@@ -215,6 +219,27 @@ class TriageAgent:
                 action_taken=referral.requested_action,
             )
 
+            # Triage note is generated ONLY after the policy
+            # decision confirms that the referral is permitted.
+            triage_note = generate_triage_note(
+                referral=referral,
+                relevant_history=relevant_history,
+            )
+
+            triage_note_path = save_triage_note(
+                referral_id=referral.referral_id,
+                note=triage_note,
+            )
+
+            self.audit.record(
+                "TRIAGE_NOTE",
+                "Triage note generated for caseworker review.",
+                referral_id=referral.referral_id,
+                provider=triage_note.provider,
+                generated_by=triage_note.generated_by,
+                path=str(triage_note_path),
+            )
+
             return AgentResult(
                 referral_id=referral.referral_id,
                 resident_ref=referral.resident_ref,
@@ -223,8 +248,10 @@ class TriageAgent:
                 reason=policy_decision.reason,
                 action_taken=referral.requested_action,
                 relevant_history=relevant_history,
+                triage_note=triage_note.content,
             )
 
+        
         # ---------------------------------------------
         # DEFENSIVE FALLBACK
         # ---------------------------------------------
